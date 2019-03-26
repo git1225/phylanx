@@ -15,6 +15,7 @@
 #include <hpx/throw_exception.hpp>
 #include <hpx/util/optional.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -108,10 +109,9 @@ namespace phylanx { namespace execution_tree { namespace primitives
                     "two integers and for tensors pool_size should be a tuple "
                     "of 3 integers"));
 
-        auto it = pool_size.begin();
-        for (std::size_t i = 0; i != pool_size.size(); ++i, ++it)
+        for (auto const it : pool_size)
         {
-            if (extract_scalar_integer_value_strict(*it) <= 0)
+            if (extract_scalar_integer_value_strict(it) <= 0)
                 HPX_THROW_EXCEPTION(hpx::bad_parameter,
                     "pool_operation::validate_pooling",
                     generate_error_message(
@@ -133,20 +133,41 @@ namespace phylanx { namespace execution_tree { namespace primitives
                     "two positive integers and for tensors strides should be a "
                     "tuple of three positive integers"));
 
-        auto it = strides.begin();
         bool flag = true;
-        for (std::size_t i = 0; i != strides.size(); ++i, ++it)
+        for (auto const it : strides)
         {
-            if (extract_scalar_integer_value_strict(*it) <= 0)
+            std::int64_t temp = extract_scalar_integer_value_strict(it);
+            if (temp <= 0)
+
                 HPX_THROW_EXCEPTION(hpx::bad_parameter,
                     "pool_operation::validate_strides",
                     generate_error_message(
                         "the strides on each dimension should be positive"));
-            if (extract_scalar_integer_value_strict(*it) != 1)
+
+            if (temp != 1)
                 flag = false;
         }
         if (flag == true)
             strides = ir::range(0);
+        return true;
+    }
+
+    bool pool_operation::validate_pool_sizes_no_padding(
+        std::array<std::size_t, PHYLANX_MAX_DIMENSIONS>&& dims,
+        ir::range const& pool_size) const
+    {
+        auto it = pool_size.begin();
+        for (std::size_t i = 0; i != pool_size.size(); ++i, ++it)
+        {
+            if (dims[i] < extract_scalar_integer_value_strict(*it))
+
+                HPX_THROW_EXCEPTION(hpx::bad_parameter,
+                    "pool_operation::validate_pool_sizes_no_padding",
+                    generate_error_message(
+                        "in the valid padding mode, each element of "
+                        "pool_size should be not greater than the size of "
+                        "array in the corresponding dimension"));
+        }
         return true;
     }
 
@@ -2098,6 +2119,19 @@ namespace phylanx { namespace execution_tree { namespace primitives
                         "pool_operation::eval",
                         this_->generate_error_message(
                             "invalid combination of arguments for pooling"));
+
+                if (padding == "valid")
+                {
+                    if (!this_->validate_pool_sizes_no_padding(
+                            extract_numeric_value_dimensions(
+                                args[0], this_->name_, this_->codename_),
+                            pool_size))
+                        HPX_THROW_EXCEPTION(hpx::bad_parameter,
+                            "pool_operation::eval",
+                            this_->generate_error_message(
+                                "at least one of the filter sizes is greater "
+                                "than the array size in that dimension"));
+                }
 
                 ir::range strides(0); // an empty range
                 if (args.size() == 4)
